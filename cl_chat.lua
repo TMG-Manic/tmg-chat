@@ -3,7 +3,6 @@ local chatInputActivating = false
 local chatLoaded = false
 local currentResourceName = GetCurrentResourceName()
 
--- Visibility States
 local CHAT_HIDE_STATES = {
     SHOW_WHEN_ACTIVE = 0,
     ALWAYS_SHOW = 1,
@@ -16,16 +15,10 @@ local isFirstHide = true
 local lastChatHideState = -1
 local origChatHideState = -1
 
--- ==========================================
---  Security & Utility
--- ==========================================
 local function UsePreSecurityBehavior()
     return GetConvar('sysresource_chat_disableOriginSecurityChecks', 'true') == 'true'
 end
 
--- ==========================================
---  Optimization: RegisterKeyMapping (0.00ms)
--- ==========================================
 RegisterCommand('chat_open', function()
     if not chatInputActive and not IsPauseMenuActive() then
         chatInputActive = true
@@ -36,9 +29,6 @@ end, false)
 
 RegisterKeyMapping('chat_open', 'Open Chat', 'keyboard', 'T')
 
--- ==========================================
---  Net Event Registration
--- ==========================================
 RegisterNetEvent('chat:addMessage')
 RegisterNetEvent('chat:addTemplate')
 RegisterNetEvent('chat:addSuggestion')
@@ -46,10 +36,6 @@ RegisterNetEvent('chat:addSuggestions')
 RegisterNetEvent('chat:removeSuggestion')
 RegisterNetEvent('chat:clear')
 RegisterNetEvent('__cfx_internal:serverPrint')
-
--- ==========================================
---  Event Handlers
--- ==========================================
 
 AddEventHandler('chat:addMessage', function(message)
     if type(message) == 'string' then message = { args = { message } } end
@@ -87,9 +73,6 @@ AddEventHandler('chat:clear', function()
     SendNUIMessage({ type = 'ON_CLEAR' })
 end)
 
--- ==========================================
---  Toggle Chat Logic (KVP Support)
--- ==========================================
 RegisterCommand('toggleChat', function(source, args)
     if not args[1] then
         if chatHideState == CHAT_HIDE_STATES.SHOW_WHEN_ACTIVE then chatHideState = CHAT_HIDE_STATES.ALWAYS_SHOW
@@ -103,9 +86,6 @@ RegisterCommand('toggleChat', function(source, args)
     SetResourceKvp('hideState', tostring(chatHideState))
 end, false)
 
--- ==========================================
---  NUI Callbacks
--- ==========================================
 RegisterRawNuiCallback('chatResult', function(requestData, cb)
     chatInputActive = false
     SetNuiFocus(false, false)
@@ -126,9 +106,6 @@ RegisterNUICallback('loaded', function(data, cb)
     cb('ok')
 end)
 
--- ==========================================
---  Optimized Background Thread (State Management)
--- ==========================================
 Citizen.CreateThread(function()
     SetTextChatEnabled(false)
     SetNuiFocus(false, false)
