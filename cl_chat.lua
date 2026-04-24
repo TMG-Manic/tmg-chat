@@ -1,115 +1,166 @@
 local chatInputActive = false
 local chatInputActivating = false
+local chatLoaded = false
 local chatHidden = false
+local currentResourceName = GetCurrentResourceName()
 local isRDR = GetGameName() == 'rdr3'
 
--- Open Chat Command
+local function UsePreSecurityBehavior()
+    return GetConvar('sysresource_chat_disableOriginSecurityChecks', 'true') == 'true'
+end
+
 RegisterCommand('chat_open', function()
-    if not chatInputActive and not chatHidden then
+    if not chatInputActive and not IsPauseMenuActive() then
         chatInputActive = true
         chatInputActivating = true
-        
-        SendNUIMessage({
-            type = 'ON_OPEN'
-        })
+        SendNUIMessage({ type = 'ON_OPEN' })
     end
 end, false)
 
--- Register Key Mapping (The Performance Fix)
--- This replaces the constant per-frame loop with a native engine listener.
 RegisterKeyMapping('chat_open', 'Open Chat', 'keyboard', 'T')
 
--- Handling NUI Focus (Optimized Thread)
+RegisterNetEvent('__cfx_internal:serverPrint')
+AddEventHandler('__cfx_internal:serverPrint', function(msg)
+    print(msg) -- Print to F8 console
+    SendNUIMessage({
+        type = 'ON_MESSAGE',
+        message = {
+            templateId = 'print',
+            multiline = true,
+            args = { msg },
+            mode = '_global'
+        }
+    })
+end)
+
+local addMessage = function(message)
+    if type(message) == 'string' then message = { args = { message } } end
+    SendNUIMessage({ type = 'ON_MESSAGE', message = message })
+end
+exports('addMessage', addMessage)
+AddEventHandler('chat:addMessage', addMessage)
+
+RegisterNetEvent('chatMessage')
+AddEventHandler('chatMessage', function(author, color, text)
+    local args = { text }
+    if author ~= "" then table.insert(args, 1, author) end
+    SendNUIMessage({
+        type = 'ON_MESSAGE',
+        message = { color = color, multiline = true, args = args }
+    })
+end)
+
+AddEventHandler('chat:addTemplate', function(id, html)
+    SendNUIMessage({ type = 'ON_TEMPLATE_ADD', template = { id = id, html = html } })
+end)
+
+AddEventHandler('chat:addSuggestion', function(name, help, params)
+    SendNUIMessage({ type = 'ON_SUGGESTION_ADD', suggestion = { name = name, help = help, params = params or nil } })
+end)
+
+AddEventHandler('chat:addSuggestions', function(suggestions)
+    SendNUIMessage({ type = 'ON_SUGGESTION_ADD', suggestion = suggestions })
+end)
+
+AddEventHandler('chat:removeSuggestion', function(name)
+    SendNUIMessage({ type = 'ON_SUGGESTION_REMOVE', name = name })
+end)
+
+AddEventHandler('chat:clear', function()
+    SendNUIMessage({ type = 'ON_CLEAR' })
+end)
+
+local function refreshCommands()
+    if GetRegisteredCommands then
+        local registeredCommands = GetRegisteredCommands()
+        local suggestions = {}
+        for _, command in ipairs(registeredCommands) do
+            if IsAceAllowed(('command.%s'):format(command.name)) then
+                table.insert(suggestions, { name = '/' .. command.name, help = '' })
+            end
+        end
+        TriggerEvent('chat:addSuggestions', suggestions)
+    end
+end
+
+local function refreshThemes()
+    local themes = {}
+    for resIdx = 0, GetNumResources() - 1 do
+        local resource = GetResourceByFindIndex(resIdx)
+        if GetResourceState(resource) == 'started' then
+            local themeName = GetResourceMetadata(resource, 'chat_theme')
+            if themeName then
+                local themeData = json.decode(GetResourceMetadata(resource, 'chat_theme_extra') or 'null')
+                if themeData then
+                    themeData.baseUrl = 'nui://' .. resource .. '/'
+                    themes[themeName] = themeData
+                end
+            end
+        end
+    end
+    SendNUIMessage({ type = 'ON_UPDATE_THEMES', themes = themes })
+end
+
+RegisterRawNuiCallback('chatResult', function(requestData, cb)
+    local resource = requestData.resource
+    local securityDisabled = UsePreSecurityBehavior()
+    if resource == nil and not securityDisabled then return end
+    
+    chatInputActive = false
+    SetNuiFocus(false, false)
+    
+    local data = json.decode(requestData.body)
+    if not data.canceled and data.message then
+        if data.message:sub(1, 1) == '/' then
+            if resource == currentResourceName or securityDisabled then
+                ExecuteCommand(data.message:sub(2))
+            end
+        else
+            TriggerServerEvent('_chat:messageEntered', GetPlayerName(PlayerId()), { 0, 153, 255 }, data.message, data.mode)
+        end
+    end
+    cb({ body = 'ok' })
+end)
+
+RegisterNUICallback('loaded', function(data, cb)
+    TriggerServerEvent('chat:init')
+    refreshCommands()
+    refreshThemes()
+    chatLoaded = true
+    cb('ok')
+end)
+
 Citizen.CreateThread(function()
     SetTextChatEnabled(false)
     SetNuiFocus(false, false)
 
     while true do
-        Wait(100) -- Check state every 100ms instead of every frame
-        
+        local sleep = 250 -- Check states every 250ms (0.00ms Resmon)
+
         if chatInputActivating then
             SetNuiFocus(true, true)
             chatInputActivating = false
+            sleep = 0
         end
 
-        if not chatInputActive then
-            Wait(400) -- Sleep the thread longer when chat is idle
+        if chatLoaded then
+            local shouldHide = IsScreenFadedOut() or IsPauseMenuActive()
+            if shouldHide ~= chatHidden then
+                chatHidden = shouldHide
+                SendNUIMessage({
+                    type = 'ON_SCREEN_STATE_CHANGE',
+                    shouldHide = chatHidden
+                })
+            end
         end
+
+        if chatInputActive then sleep = 0 end
+        Wait(sleep)
     end
 end)
 
--- NUI Callbacks
-RegisterNUICallback('chatResult', function(data, cb)
-    chatInputActive = false
-    SetNuiFocus(false, false)
-
-    if not data.canceled and data.message then
-        local message = data.message
-        if string.sub(message, 1, 1) == "/" then
-            ExecuteCommand(string.sub(message, 2))
-        else
-            TriggerServerEvent('_chat:messageEntered', GetPlayerName(PlayerId()), { r, g, b }, message)
-        end
-    end
-
-    cb('ok')
-end)
-
-RegisterNUICallback('loaded', function(data, cb)
-    TriggerServerEvent('chat:init')
-    cb('ok')
-end)
-
--- Message Events
-RegisterNetEvent('chat:addMessage')
-AddEventHandler('chat:addMessage', function(message)
-    SendNUIMessage({
-        type = 'ON_MESSAGE',
-        message = message
-    })
-end)
-
-RegisterNetEvent('chat:addTemplate')
-AddEventHandler('chat:addTemplate', function(id, html)
-    SendNUIMessage({
-        type = 'ON_TEMPLATE',
-        templateId = id,
-        html = html
-    })
-end)
-
-RegisterNetEvent('chat:addSuggestion')
-AddEventHandler('chat:addSuggestion', function(name, help, params)
-    SendNUIMessage({
-        type = 'ON_SUGGESTION_ADD',
-        suggestion = {
-            name = name,
-            help = help,
-            params = params or nil
-        }
-    })
-end)
-
-RegisterNetEvent('chat:removeSuggestion')
-AddEventHandler('chat:removeSuggestion', function(name)
-    SendNUIMessage({
-        type = 'ON_SUGGESTION_REMOVE',
-        name = name
-    })
-end)
-
-RegisterNetEvent('chat:clear')
-AddEventHandler('chat:clear', function()
-    SendNUIMessage({
-        type = 'ON_CLEAR'
-    })
-end)
-
--- Command to hide chat (Useful for Cinematics)
-RegisterCommand('hidechat', function()
-    chatHidden = not chatHidden
-    SendNUIMessage({
-        type = 'ON_SCREEN_STATE_CHANGE',
-        shouldHide = chatHidden
-    })
+AddEventHandler('onClientResourceStart', function(resName)
+    Wait(500)
+    refreshCommands()
+    refreshThemes()
 end)
