@@ -26,9 +26,13 @@ Utilizes `lua54 'yes'` for more efficient memory management and garbage collecti
 
 ## 📥 Installation
 
-1. **Path:** Place the `chat` folder into your `[system]` or `[resources]` directory.
+1. **Path:** Place the `chat` folder into your CFX Server executable `[system]` directory.
 2. **Standard Setup:** Ensure you have `ensure chat` in your `server.cfg`.
 3. **Compatibility:** This resource is 100% compatible with existing QBCore commands (`/me`, `/do`, `/ooc`, etc.) and standard chat themes.
+
+## 📺 Video
+
+https://www.youtube.com/watch?v=rLbTiJnaTHs
 
 ## ⌨️ Controls
 - **Default Key:** `T`
